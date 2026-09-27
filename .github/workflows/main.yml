@@ -1,14 +1,13 @@
 name: Build AimLock V2 Premium
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
-  workflow_dispatch:
 
 jobs:
   build:
-    name: Build APK
     runs-on: ubuntu-latest
 
     steps:
@@ -21,26 +20,93 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Gradle 8.9
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Check project
+      - name: Extract Android project
+        shell: bash
         run: |
-          echo "=== ROOT ==="
-          pwd
+          set -e
+
+          echo "=== FILES ==="
           ls -la
-          echo "=== APP ==="
-          ls -la app
+
+          ZIP=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP" ]; then
+            echo "Khong tim thay file ZIP"
+            exit 1
+          fi
+
+          echo "ZIP: $ZIP"
+
+          rm -rf extracted
+          mkdir extracted
+
+          unzip -q "$ZIP" -d extracted
+
+          echo "=== AFTER EXTRACT ==="
+          find extracted -maxdepth 4 -type f | head -100
+
+          PROJECT_DIR=$(find extracted -type f \( \
+            -name "settings.gradle" -o \
+            -name "settings.gradle.kts" \
+          \) -print -quit | xargs -r dirname)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "Khong tim thay settings.gradle"
+            exit 1
+          fi
+
+          echo "PROJECT: $PROJECT_DIR"
+
+          cp -R "$PROJECT_DIR"/. .
+
+          echo "=== PROJECT ROOT ==="
+          ls -la
+
+      - name: Check Android project
+        shell: bash
+        run: |
+          set -e
+
+          echo "=== CHECK ==="
+
+          if [ ! -d "app" ]; then
+            echo "LOI: Khong co thu muc app"
+            exit 1
+          fi
+
+          if [ ! -f "settings.gradle" ] && [ ! -f "settings.gradle.kts" ]; then
+            echo "LOI: Khong co settings.gradle"
+            exit 1
+          fi
+
+          echo "Android project OK"
 
       - name: Build Debug APK
+        shell: bash
         run: |
-          gradle assembleDebug --no-daemon --stacktrace
+          set -e
+
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew assembleDebug --no-daemon
+          else
+            gradle assembleDebug --no-daemon
+          fi
+
+      - name: Find APK
+        shell: bash
+        run: |
+          echo "=== APK ==="
+          find . -type f -name "*.apk" -print
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: AimLock-V2-Premium-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
